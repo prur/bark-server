@@ -61,16 +61,23 @@ func ReCreateAPNS(maxClientCount int) error {
 		return fmt.Errorf("invalid number of clients")
 	}
 
-	keyBytes := []byte(apnsPrivateKey)
-	if envKeyPath := os.Getenv("BARK_APNS_KEY_PATH"); envKeyPath != "" {
+	var keyBytes []byte
+	envKeyPath := os.Getenv("BARK_APNS_KEY_PATH")
+	envKey := os.Getenv("BARK_APNS_KEY")
+
+	if envKeyPath != "" {
 		b, err := os.ReadFile(envKeyPath)
 		if err != nil {
 			logger.Fatalf("failed to read APNS key file at %s: %v", envKeyPath, err)
 		}
 		keyBytes = b
-	} else if envKey := os.Getenv("BARK_APNS_KEY"); envKey != "" {
+	} else if envKey != "" {
 		keyBytes = []byte(envKey)
+	} else {
+		// No fallback to internal testing key if any credentials are being configured
+		logger.Fatalf("no APNS key provided: must set BARK_APNS_KEY_PATH or BARK_APNS_KEY")
 	}
+
 	if envTopic := os.Getenv("BARK_APNS_TOPIC"); envTopic != "" {
 		topic = envTopic
 	}
@@ -79,6 +86,10 @@ func ReCreateAPNS(maxClientCount int) error {
 	}
 	if envTeamID := os.Getenv("BARK_APNS_TEAM_ID"); envTeamID != "" {
 		teamID = envTeamID
+	}
+
+	if topic == "" || keyID == "" || teamID == "" {
+		logger.Fatalf("missing required APNS credentials: topic=%s, keyID=%s, teamID=%s", topic, keyID, teamID)
 	}
 
 	authKey, err := token.AuthKeyFromBytes(keyBytes)
@@ -102,6 +113,11 @@ func ReCreateAPNS(maxClientCount int) error {
 
 	clients = make(chan *apns2.Client, maxClientCount)
 
+	host := apns2.HostProduction
+	if envEnv := os.Getenv("BARK_APNS_ENV"); strings.EqualFold(envEnv, "development") || strings.EqualFold(envEnv, "sandbox") {
+		host = apns2.HostDevelopment
+	}
+
 	for i := 0; i < min(runtime.NumCPU(), maxClientCount); i++ {
 		client := &apns2.Client{
 			Token: &token.Token{
@@ -118,9 +134,9 @@ func ReCreateAPNS(maxClientCount int) error {
 				},
 				Timeout: apns2.HTTPClientTimeout,
 			},
-			Host: apns2.HostProduction,
+			Host: host,
 		}
-		logger.Infof("create apns client: %d", i)
+		logger.Infof("create apns client: %d (host: %s)", i, host)
 		clients <- client
 	}
 
