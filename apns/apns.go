@@ -5,6 +5,7 @@ import (
 	"crypto/x509"
 	"fmt"
 	"net/http"
+	"os"
 	"runtime"
 	"strings"
 	"time"
@@ -38,10 +39,13 @@ func (p PushMessage) IsDelete() bool {
 	return val == "1" || val == 1 || val == 1.0
 }
 
+var (
+	topic  = "cc.sanbox.bark"
+	keyID  = "2WL87966CL"
+	teamID = "46PQ4DZSV6"
+)
+
 const (
-	topic          = "me.fin.bark"
-	keyID          = "LH4T9V5U4R"
-	teamID         = "5U8LBRXG3A"
 	PayloadMaximum = 4096
 )
 
@@ -57,7 +61,27 @@ func ReCreateAPNS(maxClientCount int) error {
 		return fmt.Errorf("invalid number of clients")
 	}
 
-	authKey, err := token.AuthKeyFromBytes([]byte(apnsPrivateKey))
+	keyBytes := []byte(apnsPrivateKey)
+	if envKeyPath := os.Getenv("BARK_APNS_KEY_PATH"); envKeyPath != "" {
+		b, err := os.ReadFile(envKeyPath)
+		if err != nil {
+			logger.Fatalf("failed to read APNS key file at %s: %v", envKeyPath, err)
+		}
+		keyBytes = b
+	} else if envKey := os.Getenv("BARK_APNS_KEY"); envKey != "" {
+		keyBytes = []byte(envKey)
+	}
+	if envTopic := os.Getenv("BARK_APNS_TOPIC"); envTopic != "" {
+		topic = envTopic
+	}
+	if envKeyID := os.Getenv("BARK_APNS_KEY_ID"); envKeyID != "" {
+		keyID = envKeyID
+	}
+	if envTeamID := os.Getenv("BARK_APNS_TEAM_ID"); envTeamID != "" {
+		teamID = envTeamID
+	}
+
+	authKey, err := token.AuthKeyFromBytes(keyBytes)
 	if err != nil {
 		logger.Fatalf("failed to create APNS auth key: %v", err)
 	}
@@ -119,8 +143,8 @@ func Push(msg *PushMessage) (code int, err error) {
 			Sound(msg.Sound).
 			Category("myNotificationCategory")
 		group, exist := msg.ExtParams["group"]
-		if exist {
-			pl = pl.ThreadID(group.(string))
+		if exist && group != nil {
+			pl = pl.ThreadID(fmt.Sprintf("%v", group))
 		}
 	}
 
@@ -144,7 +168,7 @@ func Push(msg *PushMessage) (code int, err error) {
 		return 500, err
 	}
 	if resp.StatusCode != 200 {
-		return resp.StatusCode, fmt.Errorf(resp.Reason)
+		return resp.StatusCode, fmt.Errorf("%s", resp.Reason)
 	}
 	return 200, nil
 }

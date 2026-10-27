@@ -155,6 +155,16 @@ func routeDoPushV2(c *fiber.Ctx) error {
 			wg.Add(1)
 			go func(i int, newParams map[string]interface{}) {
 				defer wg.Done()
+				defer func() {
+					if r := recover(); r != nil {
+						mu.Lock()
+						result[i] = make(map[string]interface{})
+						result[i]["message"] = fmt.Sprintf("panic recovered: %v", r)
+						result[i]["code"] = 500
+						result[i]["device_key"] = deviceKeys[i]
+						mu.Unlock()
+					}
+				}()
 
 				// Push
 				code, err := push(newParams)

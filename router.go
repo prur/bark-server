@@ -69,7 +69,7 @@ func registerRouteWithWeight(name string, weight int, f func(router fiber.Router
 func routerSetup(router fiber.Router) {
 	routerOnce.Do(func() {
 		router.Use(fiberlogger.New(fiberlogger.Config{
-			Format:     "${time}     INFO    ${ip} -> [${status}] ${method} ${latency} ${route} => ${url} ${body}\n",
+			Format:     "${time}     INFO    ${ip} -> [${status}] ${method} ${latency} ${route}\n",
 			TimeFormat: "2006-01-02 15:04:05",
 			Output:     os.Stdout,
 		}))
