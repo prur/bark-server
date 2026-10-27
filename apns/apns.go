@@ -40,9 +40,9 @@ func (p PushMessage) IsDelete() bool {
 }
 
 var (
-	topic  = "cc.sanbox.bark"
-	keyID  = "2WL87966CL"
-	teamID = "46PQ4DZSV6"
+	topic  = ""
+	keyID  = ""
+	teamID = ""
 )
 
 const (
@@ -114,8 +114,14 @@ func ReCreateAPNS(maxClientCount int) error {
 	clients = make(chan *apns2.Client, maxClientCount)
 
 	host := apns2.HostProduction
-	if envEnv := os.Getenv("BARK_APNS_ENV"); strings.EqualFold(envEnv, "development") || strings.EqualFold(envEnv, "sandbox") {
-		host = apns2.HostDevelopment
+	if envEnv := strings.TrimSpace(os.Getenv("BARK_APNS_ENV")); envEnv != "" {
+		if strings.EqualFold(envEnv, "development") || strings.EqualFold(envEnv, "sandbox") {
+			host = apns2.HostDevelopment
+		} else if strings.EqualFold(envEnv, "production") {
+			host = apns2.HostProduction
+		} else {
+			logger.Fatalf("invalid BARK_APNS_ENV value %q: must be 'production', 'sandbox', or 'development'", envEnv)
+		}
 	}
 
 	for i := 0; i < min(runtime.NumCPU(), maxClientCount); i++ {
