@@ -78,18 +78,28 @@ func ReCreateAPNS(maxClientCount int) error {
 		logger.Fatalf("no APNS key provided: must set BARK_APNS_KEY_PATH or BARK_APNS_KEY")
 	}
 
-	if envTopic := os.Getenv("BARK_APNS_TOPIC"); envTopic != "" {
+	if envTopic := strings.TrimSpace(os.Getenv("BARK_APNS_TOPIC")); envTopic != "" {
 		topic = envTopic
 	}
-	if envKeyID := os.Getenv("BARK_APNS_KEY_ID"); envKeyID != "" {
+	if envKeyID := strings.TrimSpace(os.Getenv("BARK_APNS_KEY_ID")); envKeyID != "" {
 		keyID = envKeyID
 	}
-	if envTeamID := os.Getenv("BARK_APNS_TEAM_ID"); envTeamID != "" {
+	if envTeamID := strings.TrimSpace(os.Getenv("BARK_APNS_TEAM_ID")); envTeamID != "" {
 		teamID = envTeamID
 	}
 
 	if topic == "" || keyID == "" || teamID == "" {
-		logger.Fatalf("missing required APNS credentials: topic=%s, keyID=%s, teamID=%s", topic, keyID, teamID)
+		var missing []string
+		if topic == "" {
+			missing = append(missing, "BARK_APNS_TOPIC")
+		}
+		if keyID == "" {
+			missing = append(missing, "BARK_APNS_KEY_ID")
+		}
+		if teamID == "" {
+			missing = append(missing, "BARK_APNS_TEAM_ID")
+		}
+		logger.Fatalf("missing required APNS credentials: %s", strings.Join(missing, ", "))
 	}
 
 	authKey, err := token.AuthKeyFromBytes(keyBytes)
