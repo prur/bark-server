@@ -30,6 +30,7 @@ health check. Do not erase the database to resolve a registration error.
 ```sh
 go test -race ./...
 go vet ./...
+python3 -m unittest discover -s scripts -p 'test_*.py'
 python3 scripts/build.py --os linux --arch amd64
 ```
 
@@ -69,6 +70,48 @@ registration, foreground/background/locked delivery, decryption, media failure,
 restart and in-place update. Do not repeatedly retry `BadDeviceToken`,
 `DeviceTokenNotForTopic` or `Unregistered`; diagnose environment/topic or refresh
 registration. Push failures never overwrite a newly rotated database token.
+
+## Installed deployment (2026-11-06)
+
+Runtime source: `fb6a43e039078ed52dded5aadc438be992601af6`.
+Image: `bark-server:zbark-fb6a43e03907`, image ID
+`sha256:be67450ec590d9f4b6cc3b3d3686f74bdc596d96d4c0ef8f203bc15b6d10a62b`.
+Binary SHA-256: `eda6ebe7442a747c45de1270c628c769cf432b14e638a957f7c6c87901f87640`.
+Existing data, read-only credentials, non-root user, read-only filesystem,
+resource limits and other services were preserved. The protected rollback files
+and consistent bbolt snapshot are under
+`/opt/notify-hub/backups/zbark-20261106-fb6a43e03907` on the server.
+
+The Compose environment now includes
+`BARK_SERVER_REGISTRATION_MODE=${BARK_SERVER_REGISTRATION_MODE:-existing}`.
+The installed `/usr/local/bin/bark-register-window.sh` is the Python program
+from `deploy/bark-register-window.py`; execute it directly with sudo:
+
+```sh
+sudo /usr/local/bin/bark-register-window.sh status
+sudo /usr/local/bin/bark-register-window.sh close
+# Only when deliberately pairing a new device / resetting a key:
+sudo /usr/local/bin/bark-register-window.sh open 2
+# Emergency: block both new registration and existing token refresh:
+sudo /usr/local/bin/bark-register-window.sh disable
+```
+
+`close` now means **closed new enrollment with existing token refresh allowed**.
+It does not reinstate the old unconditional Caddy 403. `open` schedules automatic
+closure before changing the service, permits 1–30 minutes, and only recreates Bark.
+If timer scheduling fails, it does not open enrollment. Old scheduled `close`
+commands remain compatible. Keep the interpolation in Compose; otherwise the
+helper refuses to change policy. Status and idempotent close were checked live;
+open/timer failure ordering was tested with mocked commands. No public pairing
+window was opened during this validation.
+
+The canary replayed an existing registration against a **database copy**, retaining
+its key/token and count. Public HTTPS health, closed enrollment, malformed JSON
+and missing-key rejection passed after deployment. One production APNs request
+with an intentionally invalid all-zero token returned `400 BadDeviceToken` using
+the read-only credentials and production topic. This is a provider negative case,
+not proof of delivery to a physical iPhone. Local build and deployment reports
+are in the task worktree's ignored `build/` directory.
 
 References: [Apple APNs responses](https://developer.apple.com/documentation/usernotifications/handling-notification-responses-from-apns),
 [APNs request headers](https://developer.apple.com/documentation/usernotifications/sending-notification-requests-to-apns).
