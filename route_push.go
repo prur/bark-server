@@ -16,6 +16,8 @@ import (
 // Maximum number of batch pushes allowed, -1 means no limit
 var maxBatchPushCount = -1
 
+var pushNotification = apns.Push
+
 func init() {
 	// V2 API
 	registerRoute("push", func(router fiber.Router) {
@@ -273,12 +275,10 @@ func push(params map[string]interface{}) (int, error) {
 
 	msg.DeviceToken = deviceToken
 
-	code, err := apns.Push(&msg)
-
-	// Invalid token, delete it from database.
-	if code == 410 || (code == 400 && strings.Contains(err.Error(), "BadDeviceToken")) {
-		_, _ = db.SaveDeviceTokenByKey(msg.DeviceKey, "")
-	}
+	_, err = pushNotification(&msg)
+	// A rejection may describe a different APNs environment, or an older token
+	// already replaced by concurrent registration. Never overwrite registration
+	// data based on a push response. The caller receives the provider reason.
 	if err != nil {
 		return 500, fmt.Errorf("push failed: %v", err)
 	}

@@ -8,6 +8,7 @@ import (
 	"os"
 	"runtime"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/mritd/logger"
@@ -39,22 +40,18 @@ func (p PushMessage) IsDelete() bool {
 	return val == "1" || val == 1 || val == 1.0
 }
 
-var (
-	topic  = ""
-	keyID  = ""
-	teamID = ""
-)
-
 const (
 	PayloadMaximum = 4096
 )
 
-var clients = make(chan *apns2.Client, 1)
-
-// Initialize APNS client pool
-func init() {
-	ReCreateAPNS(1)
+type provider struct {
+	topic   string
+	clients []*apns2.Client
+	next    atomic.Uint64
 }
+
+// Publish credentials and clients together only after complete validation.
+var activeProvider atomic.Pointer[provider]
 
 func ReCreateAPNS(maxClientCount int) error {
 	if maxClientCount < 1 {
@@ -62,31 +59,25 @@ func ReCreateAPNS(maxClientCount int) error {
 	}
 
 	var keyBytes []byte
-	envKeyPath := os.Getenv("BARK_APNS_KEY_PATH")
+	envKeyPath := strings.TrimSpace(os.Getenv("BARK_APNS_KEY_PATH"))
 	envKey := os.Getenv("BARK_APNS_KEY")
 
 	if envKeyPath != "" {
 		b, err := os.ReadFile(envKeyPath)
 		if err != nil {
-			logger.Fatalf("failed to read APNS key file at %s: %v", envKeyPath, err)
+			return fmt.Errorf("failed to read APNS key file: %w", err)
 		}
 		keyBytes = b
 	} else if envKey != "" {
 		keyBytes = []byte(envKey)
 	} else {
 		// No fallback to internal testing key if any credentials are being configured
-		logger.Fatalf("no APNS key provided: must set BARK_APNS_KEY_PATH or BARK_APNS_KEY")
+		return fmt.Errorf("no APNS key provided: must set BARK_APNS_KEY_PATH or BARK_APNS_KEY")
 	}
 
-	if envTopic := strings.TrimSpace(os.Getenv("BARK_APNS_TOPIC")); envTopic != "" {
-		topic = envTopic
-	}
-	if envKeyID := strings.TrimSpace(os.Getenv("BARK_APNS_KEY_ID")); envKeyID != "" {
-		keyID = envKeyID
-	}
-	if envTeamID := strings.TrimSpace(os.Getenv("BARK_APNS_TEAM_ID")); envTeamID != "" {
-		teamID = envTeamID
-	}
+	topic := strings.TrimSpace(os.Getenv("BARK_APNS_TOPIC"))
+	keyID := strings.TrimSpace(os.Getenv("BARK_APNS_KEY_ID"))
+	teamID := strings.TrimSpace(os.Getenv("BARK_APNS_TEAM_ID"))
 
 	if topic == "" || keyID == "" || teamID == "" {
 		var missing []string
@@ -99,12 +90,12 @@ func ReCreateAPNS(maxClientCount int) error {
 		if teamID == "" {
 			missing = append(missing, "BARK_APNS_TEAM_ID")
 		}
-		logger.Fatalf("missing required APNS credentials: %s", strings.Join(missing, ", "))
+		return fmt.Errorf("missing required APNS credentials: %s", strings.Join(missing, ", "))
 	}
 
 	authKey, err := token.AuthKeyFromBytes(keyBytes)
 	if err != nil {
-		logger.Fatalf("failed to create APNS auth key: %v", err)
+		return fmt.Errorf("failed to create APNS auth key: %w", err)
 	}
 
 	var rootCAs *x509.CertPool
@@ -113,15 +104,13 @@ func ReCreateAPNS(maxClientCount int) error {
 	} else {
 		rootCAs, err = x509.SystemCertPool()
 		if err != nil {
-			logger.Fatalf("failed to get rootCAs: %v", err)
+			return fmt.Errorf("failed to get rootCAs: %w", err)
 		}
 	}
 
 	for _, ca := range apnsCAs {
 		rootCAs.AppendCertsFromPEM([]byte(ca))
 	}
-
-	clients = make(chan *apns2.Client, maxClientCount)
 
 	host := apns2.HostProduction
 	if envEnv := strings.TrimSpace(os.Getenv("BARK_APNS_ENV")); envEnv != "" {
@@ -130,10 +119,11 @@ func ReCreateAPNS(maxClientCount int) error {
 		} else if strings.EqualFold(envEnv, "production") {
 			host = apns2.HostProduction
 		} else {
-			logger.Fatalf("invalid BARK_APNS_ENV value %q: must be 'production', 'sandbox', or 'development'", envEnv)
+			return fmt.Errorf("invalid BARK_APNS_ENV: must be 'production', 'sandbox', or 'development'")
 		}
 	}
 
+	p := &provider{topic: topic}
 	for i := 0; i < min(runtime.NumCPU(), maxClientCount); i++ {
 		client := &apns2.Client{
 			Token: &token.Token{
@@ -153,20 +143,27 @@ func ReCreateAPNS(maxClientCount int) error {
 			Host: host,
 		}
 		logger.Infof("create apns client: %d (host: %s)", i, host)
-		clients <- client
+		p.clients = append(p.clients, client)
 	}
 
+	activeProvider.Store(p)
 	logger.Info("init apns client success...")
 	return nil
 }
 
 func Push(msg *PushMessage) (code int, err error) {
+	p := activeProvider.Load()
+	if p == nil {
+		return 503, fmt.Errorf("APNS provider is not configured")
+	}
 	pl := payload.NewPayload().MutableContent()
 	pushType := apns2.PushTypeAlert
+	priority := apns2.PriorityHigh
 	if msg.IsDelete() {
 		// Silent push notification
 		pl = pl.ContentAvailable()
 		pushType = apns2.PushTypeBackground
+		priority = apns2.PriorityLow
 	} else {
 		// Regular push notification
 		pl = pl.AlertTitle(msg.Title).
@@ -185,16 +182,16 @@ func Push(msg *PushMessage) (code int, err error) {
 		pl.Custom(strings.ToLower(k), fmt.Sprintf("%v", v))
 	}
 
-	client := <-clients // grab a client from the pool
-	clients <- client   // add the client back to the pool
+	client := p.clients[(p.next.Add(1)-1)%uint64(len(p.clients))]
 
 	resp, err := client.Push(&apns2.Notification{
 		CollapseID:  msg.Id,
 		DeviceToken: msg.DeviceToken,
-		Topic:       topic,
+		Topic:       p.topic,
 		Payload:     pl,
 		Expiration:  time.Now().Add(24 * time.Hour),
 		PushType:    pushType,
+		Priority:    priority,
 	})
 	if err != nil {
 		return 500, err

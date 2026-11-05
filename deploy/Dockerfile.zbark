@@ -1,0 +1,9 @@
+# Package the static binary emitted by scripts/build.py. Pin RUNTIME_IMAGE to
+# an inspected digest for deployment; no APNs keys or production data in context.
+ARG RUNTIME_IMAGE=alpine:3.22
+FROM ${RUNTIME_IMAGE}
+ARG SOURCE_REVISION=unknown
+LABEL org.opencontainers.image.revision=${SOURCE_REVISION}
+COPY bark-server /bark-server
+ENTRYPOINT ["/bark-server"]
+CMD ["--addr", "0.0.0.0:8080", "--data", "/data"]

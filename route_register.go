@@ -1,9 +1,24 @@
 package main
 
 import (
+	"fmt"
 	"github.com/gofiber/fiber/v2"
 	"github.com/mritd/logger"
+	"strings"
 )
+
+var registrationMode = "open"
+
+func setRegistrationMode(mode string) error {
+	mode = strings.ToLower(strings.TrimSpace(mode))
+	switch mode {
+	case "open", "existing", "disabled":
+		registrationMode = mode
+		return nil
+	default:
+		return fmt.Errorf("registration mode must be open, existing, or disabled")
+	}
+}
 
 type DeviceInfo struct {
 	DeviceKey   string `form:"device_key,omitempty" json:"device_key,omitempty" xml:"device_key,omitempty" query:"device_key,omitempty"`
@@ -27,6 +42,9 @@ func init() {
 }
 
 func doRegister(c *fiber.Ctx, compat bool) error {
+	if registrationMode == "disabled" {
+		return c.Status(403).JSON(failed(403, "registration is disabled"))
+	}
 	var deviceInfo DeviceInfo
 	if compat {
 		if err := c.QueryParser(&deviceInfo); err != nil {
@@ -40,6 +58,17 @@ func doRegister(c *fiber.Ctx, compat bool) error {
 
 	if deviceInfo.DeviceKey == "" && deviceInfo.OldDeviceKey != "" {
 		deviceInfo.DeviceKey = deviceInfo.OldDeviceKey
+	}
+	// A push key is the existing client's bearer credential. Closed enrollment
+	// must still let that client refresh a rotated APNs token. Never silently
+	// generate a replacement key if its registration is missing.
+	if registrationMode == "existing" {
+		if deviceInfo.DeviceKey == "" {
+			return c.Status(403).JSON(failed(403, "new device registration is disabled"))
+		}
+		if _, err := db.DeviceTokenByKey(deviceInfo.DeviceKey); err != nil {
+			return c.Status(403).JSON(failed(403, "new device registration is disabled"))
+		}
 	}
 
 	if deviceInfo.DeviceToken == "" {

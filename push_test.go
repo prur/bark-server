@@ -2,33 +2,35 @@ package main
 
 import (
 	"bytes"
+	"fmt"
 	"net/http"
+	"os"
+	"strings"
 	"testing"
 	"time"
 
 	"io"
 
+	"github.com/finb/bark-server/v2/apns"
 	"github.com/finb/bark-server/v2/database"
 	"github.com/gofiber/fiber/v2"
 	jsoniter "github.com/json-iterator/go"
 )
 
-// Before running the tests, a valid deviceToken must be set. Otherwise, the tests will fail.
+// Offline fixture only: these tests must never send notifications to Apple.
 const (
-	deviceToken = ""
+	deviceToken = "offline-test-token"
 	key         = "MemoryBaseKey"
 )
 
 var app *fiber.App
 
 func TestMain(m *testing.M) {
-	if deviceToken == "" {
-		panic("deviceToken is not set")
-	}
+	pushNotification = func(*apns.PushMessage) (int, error) { return 200, nil }
 	db = database.NewMemBase()
 	db.SaveDeviceTokenByKey(key, deviceToken)
 	app = NewServer()
-	m.Run()
+	os.Exit(m.Run())
 }
 
 func TestRegister(t *testing.T) {
@@ -66,6 +68,52 @@ func TestRegister(t *testing.T) {
 			WantStatusCode: 400,
 		},
 	})
+}
+
+func TestProviderFailurePreservesRegistration(t *testing.T) {
+	previous := pushNotification
+	defer func() { pushNotification = previous; _, _ = db.SaveDeviceTokenByKey(key, deviceToken) }()
+	for _, reason := range []string{"BadDeviceToken", "DeviceTokenNotForTopic", "Unregistered", "InvalidProviderToken", "ServiceUnavailable"} {
+		t.Run(reason, func(t *testing.T) {
+			pushNotification = func(*apns.PushMessage) (int, error) {
+				// Registration rotates while an older push is in flight.
+				_, _ = db.SaveDeviceTokenByKey(key, "rotated-offline-token")
+				return 410, fmt.Errorf("%s", reason)
+			}
+			code, err := push(map[string]interface{}{"device_key": key, "body": "test"})
+			if code != 500 || err == nil || !strings.Contains(err.Error(), reason) {
+				t.Fatalf("provider reason lost: %d %v", code, err)
+			}
+			if token, err := db.DeviceTokenByKey(key); err != nil || token != "rotated-offline-token" {
+				t.Fatal("provider failure destroyed the new registration")
+			}
+		})
+	}
+}
+
+func TestClosedEnrollmentAllowsExistingTokenRefresh(t *testing.T) {
+	previous := registrationMode
+	defer func() { registrationMode = previous; _, _ = db.SaveDeviceTokenByKey(key, deviceToken) }()
+	if err := setRegistrationMode(" EXISTING "); err != nil {
+		t.Fatal(err)
+	}
+	Endpoint(t, []APITestCase{
+		{Name: "POST existing key", Method: "POST", URL: "/register", Body: `{"key":"MemoryBaseKey","devicetoken":"refreshed-token"}`, IsJson: true, WantStatusCode: 200},
+		{Name: "GET existing key compatibility", Method: "GET", URL: "/register?key=MemoryBaseKey&devicetoken=refreshed-token", WantStatusCode: 200},
+		{Name: "new enrollment rejected", Method: "POST", URL: "/register", Body: `{"device_token":"unexpected-token"}`, IsJson: true, WantStatusCode: 403},
+		{Name: "unknown key rejected", Method: "POST", URL: "/register", Body: `{"device_key":"unknown","device_token":"unexpected-token"}`, IsJson: true, WantStatusCode: 403},
+		{Name: "missing token rejected", Method: "POST", URL: "/register", Body: `{"device_key":"MemoryBaseKey"}`, IsJson: true, WantStatusCode: 400},
+	})
+	if token, err := db.DeviceTokenByKey(key); err != nil || token != "refreshed-token" {
+		t.Fatal("closed enrollment changed the existing registration")
+	}
+	if err := setRegistrationMode("disabled"); err != nil {
+		t.Fatal(err)
+	}
+	Endpoint(t, []APITestCase{{Name: "disabled blocks existing", Method: "GET", URL: "/register?key=MemoryBaseKey&devicetoken=other", WantStatusCode: 403}})
+	if err := setRegistrationMode("invalid"); err == nil {
+		t.Fatal("invalid policy accepted")
+	}
 }
 
 func TestPushTitleAndBody(t *testing.T) {
@@ -296,7 +344,10 @@ func NewServer() *fiber.App {
 func Endpoint(t *testing.T, tc []APITestCase) {
 	for _, tt := range tc {
 		t.Run(tt.Name, func(t *testing.T) {
-			req, _ := http.NewRequest(tt.Method, tt.URL, bytes.NewBufferString(tt.Body))
+			req, err := http.NewRequest(tt.Method, "http://bark.test"+tt.URL, bytes.NewBufferString(tt.Body))
+			if err != nil {
+				t.Fatal(err)
+			}
 			if tt.IsJson {
 				req.Header.Set("Content-Type", "application/json")
 			} else {
