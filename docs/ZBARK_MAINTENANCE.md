@@ -234,3 +234,46 @@ Keep independent encrypted off-host copies and keep their password separately.
 References: [SQLite online backup](https://docs.python.org/3/library/sqlite3.html#sqlite3.Connection.backup),
 [bbolt backups](https://pkg.go.dev/go.etcd.io/bbolt#hdr-Database_backups),
 [Docker network isolation](https://docs.docker.com/engine/network/drivers/none/).
+
+
+## Installed backup and recovery evidence (2026-11-06)
+
+Backup helper source: `f17001adb9ca8e5cb982d4f1a8c9089163f34462`.
+Runtime source/image are unchanged from `6e19b8a` above.
+The old backup entry is retained at
+`/opt/notify-hub/backups/maintenance-helper-33595fc/backup.sh`.
+The current entry is `#!/bin/sh` followed by
+`exec /usr/local/bin/zbark-backup create`; the existing daily timer remains active.
+
+Both manual creation and the actual `notify-backup.service` completed the full
+drill. The unit recovery point is
+`notify-data-20261106_015421-520eabc3.tar.gz.enc`, SHA-256
+`0c34b1bac8505a0dd3577304e6f1a7722c887701c0ea6c3d83e9dbd8970e383a`.
+All 3 registrations and the complete key/token fingerprint matched before/after
+isolated runtime startup. bbolt page and SQLite integrity checks passed.
+The successful unit run's Bark stop/copy/start interval was 0.505 seconds; the
+combined trial downtime was not measured. Caddy and ntfy start times were unchanged.
+
+The first trial failed safely because a capability-free root probe could not
+read a restored file after ownership changed to UID 1000. It published no new
+backup and restarted Bark. The probe now uses the copied database's owner; this
+has a dedicated regression. 15 Python tests, Go race/vet and the source's remote
+CI pass. Code and security reviews completed for that source. PR:
+[backup delivery](https://github.com/prur/bark-server/pull/2).
+
+The encrypted archive and checksum were copied to an owner-only Mac recovery
+directory using `ssh ... sudo cat` (the server backup root is deliberately not
+readable by unprivileged scp). Local decryption verified every manifest hash and
+SQLite database. The original password was separately preserved in an owner-only
+Mac configuration file, without printing it or adding it to an archive.
+Retain that separation when repeating the off-host copy. No existing credential
+was regenerated, moved or overwritten. Third-location/password-vault recovery
+and full-host/ntfy failover remain unverified.
+
+Local/SSH maintenance completion notifications use the Mac's installed
+`zbark-run`; notification encryption keys remain on the Mac/phone. Failure,
+explicit replay and restored sender configuration were accepted by the server
+and independently found in the physical Realm. The operator confirmed new-format
+lock-screen display, wrong-key failure and correct-key recovery. The client
+ledger contains the distinct display/history evidence. Existing business/Discord
+senders were not changed.
