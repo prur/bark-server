@@ -277,3 +277,27 @@ and independently found in the physical Realm. The operator confirmed new-format
 lock-screen display, wrong-key failure and correct-key recovery. The client
 ledger contains the distinct display/history evidence. Existing business/Discord
 senders were not changed.
+
+
+## PR #2 merge closeout (2026-11-06)
+
+[Server PR #2](https://github.com/prur/bark-server/pull/2) merged into `master`
+as `0eabe56a605c1476b34ea9cfd991bd206ffffe75` at 10:28:15 Asia/Shanghai.
+The merge tree matches reviewed head `747a593` exactly. Before merging, GitHub
+reported `CLEAN`, both [PR CI](https://github.com/prur/bark-server/actions/runs/42148252370)
+and [push CI](https://github.com/prur/bark-server/actions/runs/42148243425)
+succeeded, the current-head code-review summary was complete, and no review
+thread or other comment contained an unresolved blocker. The completed security
+review remains attributed to helper source `f17001a`; its only later change was
+documentation.
+
+Client PR #2 merged into `zbark` as
+`0bac5396667046b13b789ae409d8db2ea27b6180` after its current-head CI and review
+checks. Local server `master` now tracks `fork/master` and was fast-forwarded;
+Finb's origin and the original `feat/sanbox-apns` checkout (including its existing
+untracked files) were preserved. Client local `zbark` tracks `fork/zbark`.
+
+This subsequent record commit changes only documentation and skips redundant
+CI. The closeout performs no deployment, registration request, backup creation,
+key/signing change or repeated device acceptance. The installed runtime/helper
+provenance and prior acceptance above remain separate from these merge SHAs.
