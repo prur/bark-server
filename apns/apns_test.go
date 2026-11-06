@@ -149,7 +149,7 @@ func TestAPNSWireContract(t *testing.T) {
 					if aps["content-available"] != float64(1) || aps["alert"] != nil || aps["sound"] != nil {
 						t.Error("delete is not a silent notification")
 					}
-				} else if aps["mutable-content"] != float64(1) || aps["thread-id"] != "42" || body["ciphertext"] != "opaque-fixture" || body["isarchive"] != "1" {
+				} else if aps["mutable-content"] != float64(1) || aps["thread-id"] != "42" || body["ciphertext"] != "opaque-fixture" || body["isarchive"] != "1" || body["iv"] != "AAECAwQFBgcICQoL" || body["iv_encoding"] != "base64" {
 					t.Error("extension/archiving parameters were lost")
 				}
 				w.WriteHeader(tc.code)
@@ -162,7 +162,7 @@ func TestAPNSWireContract(t *testing.T) {
 			defer server.Close()
 			p := activeProvider.Load()
 			p.clients[0].Host, p.clients[0].HTTPClient = server.URL, server.Client()
-			msg := &PushMessage{Id: "test-id", DeviceToken: "offline-token", Title: "test", Body: "body", Sound: "bell.caf", ExtParams: map[string]interface{}{"group": 42, "ciphertext": "opaque-fixture", "isarchive": 1}}
+			msg := &PushMessage{Id: "test-id", DeviceToken: "offline-token", Title: "test", Body: "body", Sound: "bell.caf", ExtParams: map[string]interface{}{"group": 42, "ciphertext": "opaque-fixture", "isarchive": 1, "iv": "AAECAwQFBgcICQoL", "iv_encoding": "base64"}}
 			if tc.delete {
 				msg.ExtParams["delete"] = "1"
 			}

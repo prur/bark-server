@@ -115,3 +115,27 @@ are in the task worktree's ignored `build/` directory.
 
 References: [Apple APNs responses](https://developer.apple.com/documentation/usernotifications/handling-notification-responses-from-apns),
 [APNs request headers](https://developer.apple.com/documentation/usernotifications/sending-notification-requests-to-apns).
+
+## Continuing acceptance and remote delivery (2026-11-06)
+
+The current session re-read the live image ID and binary hash above, confirmed
+the production topic/Team/environment and `existing` policy, and observed the
+updated physical client successfully POST-register without changing its key.
+The phone received test notifications through this deployment; the operator
+visually confirmed the uniquely identified locked-screen case. Client-side Realm
+inspection and update evidence belong to the client delivery ledger; APNs 200
+alone is still not physical acceptance.
+
+The new regression assertion includes a base64 `iv` and `iv_encoding=base64`
+alongside ciphertext. The existing deployed runtime already forwards these
+parameters; this continuation changes tests, documentation and the fork workflow
+guard, not server runtime behavior. A new source head must not be confused with
+the deployed `fb6a43e` runtime. No production restart is needed just to publish
+these changes. New client AES-256-GCM keys stay in the client and the sender's
+owner-only configuration, never in Compose, APNs credentials or the server.
+
+Remote maintenance now uses [prur/bark-server](https://github.com/prur/bark-server).
+Keep Finb's `origin` read-only and use the separate `fork` remote. Only the
+credential-free regression workflow should run for this fork. The inherited
+registry/release workflow is guarded to the original Finb repository so a fork
+tag cannot accidentally target upstream registry names or signing credentials.
