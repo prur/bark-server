@@ -175,5 +175,18 @@ class BackupTests(unittest.TestCase):
                     backup.create(hub, password)
             self.assertEqual(list(backups.iterdir()), [previous])
 
+    def test_offline_probe_uses_file_owner_without_dac_override_capability(self):
+        with tempfile.TemporaryDirectory() as directory:
+            contents = Path(directory)
+            database = contents / "hub/bark-data/bark.db"
+            database.parent.mkdir(parents=True)
+            database.write_bytes(b"fixture")
+            owner = database.stat()
+            with patch.object(backup, "run", return_value=b'{"registration_count":3}') as run:
+                backup.database_check(contents, "sha256:fixture")
+            args = run.call_args.args[0]
+            self.assertEqual(args[args.index("--user") + 1], f"{owner.st_uid}:{owner.st_gid}")
+            self.assertEqual(args[args.index("--cap-drop") + 1], "ALL")
+
 
 if __name__ == "__main__": unittest.main()

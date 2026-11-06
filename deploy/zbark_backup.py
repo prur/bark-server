@@ -184,8 +184,9 @@ def verify_files(contents):
 
 
 def database_check(contents, image):
+    owner = (contents / "hub/bark-data/bark.db").stat()
     return json.loads(run(["docker", "run", "--rm", "--network", "none", "--read-only", "--cap-drop", "ALL",
-                           "--security-opt", "no-new-privileges:true", "--user", "0:0", "--entrypoint", "/db-probe",
+                           "--security-opt", "no-new-privileges:true", "--user", f"{owner.st_uid}:{owner.st_gid}", "--entrypoint", "/db-probe",
                            "-v", str(contents / "db-probe") + ":/db-probe:ro",
                            "-v", str(contents / "hub/bark-data/bark.db") + ":/copy/bark.db:ro",
                            image, "--db", "/copy/bark.db"]))
