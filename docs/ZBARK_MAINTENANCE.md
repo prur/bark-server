@@ -171,3 +171,66 @@ were pending; new timer callbacks cannot override `disabled`.
 Local Go race/vet checks and 7 Python regressions pass; the exact runtime source
 passed both push and PR GitHub Actions runs. PR: [server delivery](https://github.com/prur/bark-server/pull/1).
 The deployed source and subsequent documentation-only submission head may differ.
+
+
+## Consistent daily backups and isolated recovery
+
+`deploy/zbark_backup.py` replaces the former live `tar` of the bbolt and SQLite
+databases. It requires Python 3.11+, OpenSSL, Docker, the existing owner-only
+`/root/.notify-backup.pass`, and a Linux build of the offline database probe:
+
+```sh
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -mod=readonly -trimpath -buildvcs=false \
+  -o build/db-probe scripts/db_probe.go
+# On the notification host, preserve the old backup.sh first:
+sudo install -d -m 700 /usr/local/lib/zbark
+sudo install -m 755 db-probe /usr/local/lib/zbark/db-probe
+sudo install -m 755 zbark_backup.py /usr/local/bin/zbark-backup
+# /opt/notify-hub/backup.sh becomes a two-line exec wrapper:
+# #!/bin/sh
+# exec /usr/local/bin/zbark-backup create
+sudo /usr/local/bin/zbark-backup create
+sudo /usr/local/bin/zbark-backup status
+sudo /usr/local/bin/zbark-backup drill --archive /protected/notify-data-....tar.gz.enc
+```
+
+Creation serializes with enrollment-policy operations. It stops only the exact
+Bark container while copying bbolt, then restarts it in `finally`, including
+copy errors, stop timeouts and normal termination signals. A forced kill or host
+failure still needs an operator to check `docker start bark-server`. SQLite uses
+its online backup API, including committed WAL data, and passes integrity checks.
+The databases are individually consistent; this is not a cross-service transaction.
+No schema, APNs credential, registration policy, image or proxy change is required.
+
+Each encrypted archive includes the databases, configuration, APNs certificate
+directory, maintenance helpers/units, exact Bark runtime image and an offline
+bbolt integrity/fingerprint probe. The existing backup password is deliberately
+excluded. Temporary plaintext exists only in owner-only directories, removed
+on normal completion/error. Encryption retains the existing OpenSSL PBKDF2/AES
+format; SHA-256 and an inner manifest detect accidental damage, not an adversary
+who can replace both the archive and checksum. Keep the archive and password in
+separate protected locations. Never publish decrypted archives or keys.
+
+Before publication, the archive is decrypted and all manifest hashes checked.
+SQLite integrity and bbolt page consistency are checked. A disposable container
+loads the exported image and starts from only restored data/certificates, with
+`--network none`, no published port and no live data mount. Its revision, count
+and full key/token fingerprint must match; the fingerprint remains unchanged
+after startup. It cannot contact APNs. The signed client encryption key belongs
+to a separate sender/client backup and is not expected on this server.
+
+Only after the drill passes does the archive gain its final name and safe JSON
+report, and only then can the existing seven-day archive retention run. A failed
+run retains earlier completed recovery points. `status` fails on a backup older
+than 36 hours, checksum drift, unhealthy Bark, open registration, a failed last
+backup service, or an inactive timer. Existing legacy archives remain readable
+with the old OpenSSL command, but do not have the new manifest/drill evidence.
+
+Rollback the helper by restoring the preserved `backup.sh`; this does not change
+the live database. Runtime rollback still follows the earlier image/config
+procedure. A backup drill is not a production failover or full-host/ntfy restore.
+Keep independent encrypted off-host copies and keep their password separately.
+
+References: [SQLite online backup](https://docs.python.org/3/library/sqlite3.html#sqlite3.Connection.backup),
+[bbolt backups](https://pkg.go.dev/go.etcd.io/bbolt#hdr-Database_backups),
+[Docker network isolation](https://docs.docker.com/engine/network/drivers/none/).
