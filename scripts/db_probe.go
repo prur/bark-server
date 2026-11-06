@@ -3,6 +3,9 @@ package main
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/binary"
+	"encoding/hex"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -33,13 +36,25 @@ func probe(path, endpoint, commit string) error {
 	defer db.Close()
 	var key, token string
 	count := 0
+	fingerprint := sha256.New()
 	err = db.View(func(tx *bbolt.Tx) error {
+		var checkErr error
+		for err := range tx.Check() {
+			checkErr = fmt.Errorf("database consistency check failed: %w", err)
+		}
+		if checkErr != nil {
+			return checkErr
+		}
 		bucket := tx.Bucket([]byte("device"))
 		if bucket == nil {
 			return fmt.Errorf("device bucket missing")
 		}
 		return bucket.ForEach(func(k, v []byte) error {
 			count++
+			for _, part := range [][]byte{k, v} {
+				_ = binary.Write(fingerprint, binary.BigEndian, uint64(len(part)))
+				_, _ = fingerprint.Write(part)
+			}
 			if key == "" && len(v) >= 32 && !bytes.ContainsAny(v, " \n\t") {
 				key, token = string(k), string(v)
 			}
@@ -48,6 +63,10 @@ func probe(path, endpoint, commit string) error {
 	})
 	if err != nil {
 		return err
+	}
+	if endpoint == "" {
+		return json.NewEncoder(os.Stdout).Encode(map[string]any{"registration_count": count,
+			"registration_fingerprint": hex.EncodeToString(fingerprint.Sum(nil)), "bbolt_integrity": "passed"})
 	}
 	if key == "" {
 		return fmt.Errorf("no existing registration suitable for idempotent replay")

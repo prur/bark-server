@@ -171,3 +171,109 @@ were pending; new timer callbacks cannot override `disabled`.
 Local Go race/vet checks and 7 Python regressions pass; the exact runtime source
 passed both push and PR GitHub Actions runs. PR: [server delivery](https://github.com/prur/bark-server/pull/1).
 The deployed source and subsequent documentation-only submission head may differ.
+
+
+## Consistent daily backups and isolated recovery
+
+`deploy/zbark_backup.py` replaces the former live `tar` of the bbolt and SQLite
+databases. It requires Python 3.11+, OpenSSL, Docker, the existing owner-only
+`/root/.notify-backup.pass`, and a Linux build of the offline database probe:
+
+```sh
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -mod=readonly -trimpath -buildvcs=false \
+  -o build/db-probe scripts/db_probe.go
+# On the notification host, preserve the old backup.sh first:
+sudo install -d -m 700 /usr/local/lib/zbark
+sudo install -m 755 db-probe /usr/local/lib/zbark/db-probe
+sudo install -m 755 zbark_backup.py /usr/local/bin/zbark-backup
+# /opt/notify-hub/backup.sh becomes a two-line exec wrapper:
+# #!/bin/sh
+# exec /usr/local/bin/zbark-backup create
+sudo /usr/local/bin/zbark-backup create
+sudo /usr/local/bin/zbark-backup status
+sudo /usr/local/bin/zbark-backup drill --archive /protected/notify-data-....tar.gz.enc
+```
+
+Creation serializes with enrollment-policy operations. It stops only the exact
+Bark container while copying bbolt, then restarts it in `finally`, including
+copy errors, stop timeouts and normal termination signals. A forced kill or host
+failure still needs an operator to check `docker start bark-server`. SQLite uses
+its online backup API, including committed WAL data, and passes integrity checks.
+The databases are individually consistent; this is not a cross-service transaction.
+No schema, APNs credential, registration policy, image or proxy change is required.
+
+Each encrypted archive includes the databases, configuration, APNs certificate
+directory, maintenance helpers/units, exact Bark runtime image and an offline
+bbolt integrity/fingerprint probe. The existing backup password is deliberately
+excluded. Temporary plaintext exists only in owner-only directories, removed
+on normal completion/error. Encryption retains the existing OpenSSL PBKDF2/AES
+format; SHA-256 and an inner manifest detect accidental damage, not an adversary
+who can replace both the archive and checksum. Keep the archive and password in
+separate protected locations. Never publish decrypted archives or keys.
+
+Before publication, the archive is decrypted and all manifest hashes checked.
+SQLite integrity and bbolt page consistency are checked. A disposable container
+loads the exported image and starts from only restored data/certificates, with
+`--network none`, no published port and no live data mount. Its revision, count
+and full key/token fingerprint must match; the fingerprint remains unchanged
+after startup. It cannot contact APNs. The signed client encryption key belongs
+to a separate sender/client backup and is not expected on this server.
+
+Only after the drill passes does the archive gain its final name and safe JSON
+report, and only then can the existing seven-day archive retention run. A failed
+run retains earlier completed recovery points. `status` fails on a backup older
+than 36 hours, checksum drift, unhealthy Bark, open registration, a failed last
+backup service, or an inactive timer. Existing legacy archives remain readable
+with the old OpenSSL command, but do not have the new manifest/drill evidence.
+
+Rollback the helper by restoring the preserved `backup.sh`; this does not change
+the live database. Runtime rollback still follows the earlier image/config
+procedure. A backup drill is not a production failover or full-host/ntfy restore.
+Keep independent encrypted off-host copies and keep their password separately.
+
+References: [SQLite online backup](https://docs.python.org/3/library/sqlite3.html#sqlite3.Connection.backup),
+[bbolt backups](https://pkg.go.dev/go.etcd.io/bbolt#hdr-Database_backups),
+[Docker network isolation](https://docs.docker.com/engine/network/drivers/none/).
+
+
+## Installed backup and recovery evidence (2026-11-06)
+
+Backup helper source: `f17001adb9ca8e5cb982d4f1a8c9089163f34462`.
+Runtime source/image are unchanged from `6e19b8a` above.
+The old backup entry is retained at
+`/opt/notify-hub/backups/maintenance-helper-33595fc/backup.sh`.
+The current entry is `#!/bin/sh` followed by
+`exec /usr/local/bin/zbark-backup create`; the existing daily timer remains active.
+
+Both manual creation and the actual `notify-backup.service` completed the full
+drill. The unit recovery point is
+`notify-data-20261106_015421-520eabc3.tar.gz.enc`, SHA-256
+`0c34b1bac8505a0dd3577304e6f1a7722c887701c0ea6c3d83e9dbd8970e383a`.
+All 3 registrations and the complete key/token fingerprint matched before/after
+isolated runtime startup. bbolt page and SQLite integrity checks passed.
+The successful unit run's Bark stop/copy/start interval was 0.505 seconds; the
+combined trial downtime was not measured. Caddy and ntfy start times were unchanged.
+
+The first trial failed safely because a capability-free root probe could not
+read a restored file after ownership changed to UID 1000. It published no new
+backup and restarted Bark. The probe now uses the copied database's owner; this
+has a dedicated regression. 15 Python tests, Go race/vet and the source's remote
+CI pass. Code and security reviews completed for that source. PR:
+[backup delivery](https://github.com/prur/bark-server/pull/2).
+
+The encrypted archive and checksum were copied to an owner-only Mac recovery
+directory using `ssh ... sudo cat` (the server backup root is deliberately not
+readable by unprivileged scp). Local decryption verified every manifest hash and
+SQLite database. The original password was separately preserved in an owner-only
+Mac configuration file, without printing it or adding it to an archive.
+Retain that separation when repeating the off-host copy. No existing credential
+was regenerated, moved or overwritten. Third-location/password-vault recovery
+and full-host/ntfy failover remain unverified.
+
+Local/SSH maintenance completion notifications use the Mac's installed
+`zbark-run`; notification encryption keys remain on the Mac/phone. Failure,
+explicit replay and restored sender configuration were accepted by the server
+and independently found in the physical Realm. The operator confirmed new-format
+lock-screen display, wrong-key failure and correct-key recovery. The client
+ledger contains the distinct display/history evidence. Existing business/Discord
+senders were not changed.
