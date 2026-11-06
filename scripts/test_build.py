@@ -15,7 +15,7 @@ spec.loader.exec_module(build)
 class BuildTests(unittest.TestCase):
     def test_relative_output_is_one_location_for_binary_and_manifest(self):
         with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
+            root = Path(directory).resolve()
             (root / "scripts").mkdir()
             original = Path.cwd()
             def compile(args, **kwargs):
