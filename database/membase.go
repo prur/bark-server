@@ -21,6 +21,10 @@ func (d *MemBase) CountAll() (int, error) {
 	return 1, nil
 }
 
+func (d *MemBase) HasDeviceKey(key string) (bool, error) {
+	return key != "" && key == cacheKey, nil
+}
+
 func (d *MemBase) DeviceTokenByKey(key string) (string, error) {
 	if cacheKey == key && cacheDeviceToken != "" {
 		return cacheDeviceToken, nil

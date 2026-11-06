@@ -46,6 +46,14 @@ func main() {
 	}
 }
 func runServer(c *cli.Context) error {
+	if err := setRegistrationMode(c.String("registration-mode")); err != nil {
+		return err
+	}
+	// Validate before opening the database or accepting requests. Importing the
+	// package and --help/--version must not require a production private key.
+	if err := apns.ReCreateAPNS(c.Int("max-apns-client-count")); err != nil {
+		return err
+	}
 	network := determineNetwork(c)
 	fiberApp := createFiberApp(c, network)
 	setupRouter(c, fiberApp)
@@ -292,7 +300,12 @@ func getAppFlags() []cli.Flag {
 			Usage:   "Maximum number of APNs client connections",
 			EnvVars: []string{"BARK_SERVER_MAX_APNS_CLIENT_COUNT"},
 			Value:   1,
-			Action:  func(ctx *cli.Context, v int) error { return apns.ReCreateAPNS(v) },
+		},
+		&cli.StringFlag{
+			Name:    "registration-mode",
+			Usage:   "Device registration policy: open, existing, or disabled",
+			EnvVars: []string{"BARK_SERVER_REGISTRATION_MODE"},
+			Value:   "open",
 		},
 		&cli.IntFlag{
 			Name:    "concurrency",

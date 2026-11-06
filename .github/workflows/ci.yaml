@@ -6,6 +6,8 @@ on:
       
 jobs:
   docker:
+    # Upstream publication credentials and registry namespaces do not belong to forks.
+    if: github.repository == 'Finb/bark-server'
     runs-on: ubuntu-latest
     permissions:
       contents: write

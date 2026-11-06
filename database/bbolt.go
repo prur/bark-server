@@ -49,6 +49,15 @@ func (d *BboltDB) Close() error {
 }
 
 // DeviceTokenByKey get device token of specified key
+func (d *BboltDB) HasDeviceKey(key string) (bool, error) {
+	var exists bool
+	err := db.View(func(tx *bbolt.Tx) error {
+		exists = key != "" && tx.Bucket([]byte(bucketName)).Get([]byte(key)) != nil
+		return nil
+	})
+	return exists, err
+}
+
 func (d *BboltDB) DeviceTokenByKey(key string) (string, error) {
 	var token string
 	err := db.View(func(tx *bbolt.Tx) error {
