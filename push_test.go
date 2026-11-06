@@ -97,6 +97,9 @@ func TestClosedEnrollmentAllowsExistingTokenRefresh(t *testing.T) {
 	if err := setRegistrationMode(" EXISTING "); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := db.SaveDeviceTokenByKey(key, ""); err != nil {
+		t.Fatal(err)
+	}
 	Endpoint(t, []APITestCase{
 		{Name: "POST existing key", Method: "POST", URL: "/register", Body: `{"key":"MemoryBaseKey","devicetoken":"refreshed-token"}`, IsJson: true, WantStatusCode: 200},
 		{Name: "GET existing key compatibility", Method: "GET", URL: "/register?key=MemoryBaseKey&devicetoken=refreshed-token", WantStatusCode: 200},

@@ -4,6 +4,7 @@ ARG RUNTIME_IMAGE=alpine:3.22
 FROM ${RUNTIME_IMAGE}
 USER root
 RUN test -s /etc/ssl/certs/ca-certificates.crt || apk add --no-cache ca-certificates
+RUN mkdir -p /data && chown 1000:1000 /data
 ARG SOURCE_REVISION=unknown
 LABEL org.opencontainers.image.revision=${SOURCE_REVISION}
 COPY bark-server /bark-server

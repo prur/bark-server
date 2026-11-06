@@ -16,6 +16,10 @@ func (d *EnvBase) CountAll() (int, error) {
 	return 1, nil
 }
 
+func (d *EnvBase) HasDeviceKey(key string) (bool, error) {
+	return key != "" && key == os.Getenv("BARK_KEY"), nil
+}
+
 func (d *EnvBase) DeviceTokenByKey(key string) (string, error) {
 	if key == os.Getenv("BARK_KEY") {
 		return os.Getenv("BARK_DEVICE_TOKEN"), nil

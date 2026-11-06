@@ -111,6 +111,12 @@ func (d *MySQL) DeviceTokenByKey(key string) (string, error) {
 	return token, nil
 }
 
+func (d *MySQL) HasDeviceKey(key string) (bool, error) {
+	var exists bool
+	err := mysqlDB.QueryRow("SELECT EXISTS(SELECT 1 FROM `devices` WHERE `key`=?)", key).Scan(&exists)
+	return exists && key != "", err
+}
+
 func (d *MySQL) SaveDeviceTokenByKey(key, token string) (string, error) {
 	if key == "" {
 		// Generate a new UUID as the deviceKey when a new device register

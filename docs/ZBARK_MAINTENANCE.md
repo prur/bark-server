@@ -99,8 +99,10 @@ sudo /usr/local/bin/bark-register-window.sh disable
 `close` now means **closed new enrollment with existing token refresh allowed**.
 It does not reinstate the old unconditional Caddy 403. `open` schedules automatic
 closure before changing the service, permits 1–30 minutes, and only recreates Bark.
-If timer scheduling fails, it does not open enrollment. Old scheduled `close`
-commands remain compatible. Keep the interpolation in Compose; otherwise the
+If timer scheduling fails, it does not open enrollment. The helper serializes operator/timer transitions. Timer callbacks use
+`autoclose`, which changes only `open` to `existing` and cannot undo emergency
+`disabled`. Cancel legacy `bark-register-autoclose-*.timer` units when upgrading
+from the earlier helper that scheduled unconditional `close` callbacks. Keep the interpolation in Compose; otherwise the
 helper refuses to change policy. Status and idempotent close were checked live;
 open/timer failure ordering was tested with mocked commands. No public pairing
 window was opened during this validation.
@@ -128,10 +130,12 @@ alone is still not physical acceptance.
 
 The new regression assertion includes a base64 `iv` and `iv_encoding=base64`
 alongside ciphertext. The existing deployed runtime already forwards these
-parameters; this continuation changes tests, documentation and the fork workflow
-guard, not server runtime behavior. A new source head must not be confused with
-the deployed `fb6a43e` runtime. No production restart is needed just to publish
-these changes. New client AES-256-GCM keys stay in the client and the sender's
+parameters; the initial wire assertion needed no runtime change. Subsequent review
+found that old bbolt records may retain keys with empty tokens. Registration
+now checks key existence independently of token usability, so a valid existing
+client can recover without opening enrollment. Database lookup errors fail
+closed with 503. A new source head must not be confused with the historical
+`fb6a43e` runtime; the new deployed revision is recorded separately below. New client AES-256-GCM keys stay in the client and the sender's
 owner-only configuration, never in Compose, APNs credentials or the server.
 
 Remote maintenance now uses [prur/bark-server](https://github.com/prur/bark-server).
@@ -139,3 +143,8 @@ Keep Finb's `origin` read-only and use the separate `fork` remote. Only the
 credential-free regression workflow should run for this fork. The inherited
 registry/release workflow is guarded to the original Finb repository so a fork
 tag cannot accidentally target upstream registry names or signing credentials.
+
+Review follow-up also resolves build output paths before changing subprocess cwd,
+creates `/data` for UID/GID 1000 in fresh images, and covers empty-token recovery
+after bbolt reopen plus timer behavior after emergency disable. Existing mounts,
+keys and database schema remain unchanged.

@@ -16,6 +16,10 @@ func TestBboltRegistrationSurvivesRestartAndTokenRotation(t *testing.T) {
 	if err != nil || updated != key {
 		t.Fatal("rotation changed the push key")
 	}
+	// Older runtimes invalidated tokens without deleting their bearer keys.
+	if _, err := first.SaveDeviceTokenByKey(key, ""); err != nil {
+		t.Fatal(err)
+	}
 	if err := first.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -23,6 +27,18 @@ func TestBboltRegistrationSurvivesRestartAndTokenRotation(t *testing.T) {
 	dbOnce = sync.Once{}
 	second := NewBboltdb(directory)
 	defer second.Close()
+	if exists, err := second.HasDeviceKey(key); err != nil || !exists {
+		t.Fatal("empty-token registration lost on restart")
+	}
+	if exists, err := second.HasDeviceKey("unknown"); err != nil || exists {
+		t.Fatal("unknown key accepted")
+	}
+	if _, err := second.DeviceTokenByKey(key); err == nil {
+		t.Fatal("empty token treated as deliverable")
+	}
+	if updated, err := second.SaveDeviceTokenByKey(key, "rotated-token"); err != nil || updated != key {
+		t.Fatal("empty-token recovery changed key")
+	}
 	if token, err := second.DeviceTokenByKey(key); err != nil || token != "rotated-token" {
 		t.Fatalf("registration lost on restart: %v", err)
 	}

@@ -66,7 +66,11 @@ func doRegister(c *fiber.Ctx, compat bool) error {
 		if deviceInfo.DeviceKey == "" {
 			return c.Status(403).JSON(failed(403, "new device registration is disabled"))
 		}
-		if _, err := db.DeviceTokenByKey(deviceInfo.DeviceKey); err != nil {
+		exists, err := db.HasDeviceKey(deviceInfo.DeviceKey)
+		if err != nil {
+			return c.Status(503).JSON(failed(503, "registration database unavailable"))
+		}
+		if !exists {
 			return c.Status(403).JSON(failed(403, "new device registration is disabled"))
 		}
 	}

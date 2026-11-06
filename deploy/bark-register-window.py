@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Closed enrollment permits existing-token refresh; timed open permits pairing."""
 import argparse
+import fcntl
 import os
 import subprocess
 import sys
@@ -8,6 +9,7 @@ import time
 
 COMPOSE = "/opt/notify-hub/docker-compose.yml"
 SCRIPT = "/usr/local/bin/bark-register-window.sh"
+LOCK = "/run/lock/zbark-registration.lock"
 
 
 def execute(args, **kwargs):
@@ -24,23 +26,33 @@ def current():
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=["status", "open", "close", "disable"], nargs="?", default="status")
+    parser.add_argument("command", choices=["status", "open", "close", "disable", "autoclose"], nargs="?", default="status")
     parser.add_argument("minutes", nargs="?", type=int, default=5)
     args = parser.parse_args()
     if not 1 <= args.minutes <= 30:
         parser.error("pairing window must be 1..30 minutes")
     if os.geteuid() != 0:
         parser.error("run with sudo")
+    # Serialize timer/operator transitions so a stale callback cannot race disable.
+    with open(LOCK, "a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        apply(args)
+
+
+def apply(args):
     mode = current()
     if args.command == "status":
         print(f"registration: {mode} (existing = new pairing closed; token refresh allowed)")
         return
-    desired = {"open": "open", "close": "existing", "disable": "disabled"}[args.command]
+    if args.command == "autoclose" and mode != "open":
+        print(f"registration: {mode} (timer made no change)")
+        return
+    desired = {"open": "open", "close": "existing", "autoclose": "existing", "disable": "disabled"}[args.command]
     if desired == "open":
         # Schedule closure before exposing enrollment. If scheduling fails,
         # leave the current policy in place. Earlier timers remain fail-safe.
         execute(["systemd-run", f"--on-active={args.minutes}min", f"--unit=bark-register-autoclose-{time.time_ns()}",
-                 "--collect", SCRIPT, "close"], stdout=subprocess.DEVNULL)
+                 "--collect", SCRIPT, "autoclose"], stdout=subprocess.DEVNULL)
     if mode != desired:
         environment = {**os.environ, "BARK_SERVER_REGISTRATION_MODE": desired}
         # Compose must declare ${BARK_SERVER_REGISTRATION_MODE:-existing}.

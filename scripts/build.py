@@ -24,7 +24,7 @@ def main():
         parser.error("commit source before building a release binary")
     commit = output("git", "-C", str(ROOT), "rev-parse", "HEAD")
     date = output("git", "-C", str(ROOT), "show", "-s", "--format=%cI", "HEAD")
-    destination = args.output or ROOT / "build" / f"{commit[:12]}-{args.os}-{args.arch}"
+    destination = (args.output or ROOT / "build" / f"{commit[:12]}-{args.os}-{args.arch}").resolve()
     destination.mkdir(parents=True, exist_ok=False)
     binary = destination / "bark-server"
     flags = f"-s -w -X=main.version=zbark-{commit[:12]} -X=main.commitID={commit} -X=main.buildDate={date}"
