@@ -148,3 +148,26 @@ Review follow-up also resolves build output paths before changing subprocess cwd
 creates `/data` for UID/GID 1000 in fresh images, and covers empty-token recovery
 after bbolt reopen plus timer behavior after emergency disable. Existing mounts,
 keys and database schema remain unchanged.
+
+## Current installed revision after review fixes
+
+Runtime source: `6e19b8a6acb486645960226a1dfcdfd06effd8f5`.
+Image: `bark-server:zbark-6e19b8a6acb4`, image ID
+`sha256:2f93658f6ddf211b3bbbdc74c1afbf8b3c074b6ae7657ddb0e661c4db04f9f83`.
+Binary SHA-256: `e3420cb046aef79f187666e846ea6bdf4f87beb1f7417d9e12d31cd2fa682e02`.
+Protected consistent snapshot and rollback definitions:
+`/opt/notify-hub/backups/zbark-20261106-6e19b8a6acb4`.
+
+The database-copy canary deliberately invalidated one copied token, then restored
+that registration through the closed-enrollment endpoint without changing its
+key or the count of 3 registrations. A separate container with no network, no
+published port and no production data mount initialized its own database as UID
+1000. Current public health/rejection checks follow deployment. Production
+switching took 1.29 seconds; the earlier backup stop/start interval was not
+retained and is not presented as a measured duration. Other services retained
+their start times, live data/credential mounts and hardening. No old timer units
+were pending; new timer callbacks cannot override `disabled`.
+
+Local Go race/vet checks and 7 Python regressions pass; the exact runtime source
+passed both push and PR GitHub Actions runs. PR: [server delivery](https://github.com/prur/bark-server/pull/1).
+The deployed source and subsequent documentation-only submission head may differ.
